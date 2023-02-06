@@ -1,15 +1,15 @@
 import 'dart:convert';
-import 'dart:ffi';
-
 import 'package:bitcoin_ticker/api_key.dart';
 import 'package:bitcoin_ticker/utils/wrappers.dart';
+import 'package:bitcoin_ticker/widgets/currency_picker.dart';
+import 'package:bitcoin_ticker/widgets/rate_card.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:intl/intl.dart' show NumberFormat;
 import 'package:http/http.dart' as http;
 import 'dart:io' show Platform;
-import 'package:money2/money2.dart' show Currency;
 import 'coin_data.dart';
+import 'package:flutter_spinkit/flutter_spinkit.dart';
 
 class PriceScreen extends StatefulWidget {
   @override
@@ -17,10 +17,34 @@ class PriceScreen extends StatefulWidget {
 }
 
 class _PriceScreenState extends State<PriceScreen> {
-  String selectedCurrency = '-';
-  String selectedCurrencyBtcRate = '-';
-  NumberFormat compactFormatter = NumberFormat.compact();
+  String selectedCurrency = 'USD';
+  Map rates = new Map();
   bool isScrolling = false;
+  NumberFormat compactFormatter = NumberFormat.compact();
+  SpinKitThreeBounce loader2 = SpinKitThreeBounce(color: Color.fromARGB(255, 168, 198, 250), size: 20.0);
+
+  @override
+  initState() {
+    super.initState();
+    updateRates();
+  }
+
+  void updateRates() async {
+    Map tempRates = new Map();
+    cryptoList.forEach((element) async {
+      try {
+        var data = await fetchRate(element);
+        tempRates[element] = compactFormatter.format(jsonDecode(data.body)['rate']);
+      } catch (e) {
+        print('Could not fetch rate for currency $element $e');
+        tempRates[element] = '-';
+      }
+    });
+    setState(() {
+      isScrolling = false;
+      rates = tempRates;
+    });
+  }
 
   void updateSelectedCurrency(selectedIndex) => setState(
         () {
@@ -28,58 +52,25 @@ class _PriceScreenState extends State<PriceScreen> {
         },
       );
 
-  Future<http.Response> fetchRate() async {
-    http.Response resp = await http.get(Uri.parse('https://rest.coinapi.io/v1/exchangerate/BTC/$selectedCurrency'),
+  Future<http.Response> fetchRate(String baseCurrency) async {
+    http.Response resp = await http.get(
+        Uri.parse('https://rest.coinapi.io/v1/exchangerate/$baseCurrency/$selectedCurrency'),
         headers: {"X-CoinAPI-Key": api_key});
     return resp;
-    // print(jsonDecode(resp.body));
-    // setState(() {
-    //   selectedCurrencyBtcRate = compactFormatter.format(jsonDecode(resp.body)['rate']);
-    // });
   }
 
   void onScrollStart() {
     setState(() {
       isScrolling = true;
-      selectedCurrency = '-';
-      selectedCurrencyBtcRate = '-';
     });
   }
 
   void onScrollEnd(selectedIndex) async {
-    var selected = currenciesList[selectedIndex];
-    var currencyData = await fetchRate();
+    updateRates();
     setState(() {
-      isScrolling = false;
-      selectedCurrency = selected;
-      selectedCurrencyBtcRate = compactFormatter.format(jsonDecode(currencyData.body)['rate']);
+      selectedCurrency = currenciesList[selectedIndex];
     });
   }
-
-  DropdownButton<String> androidDropdown() => DropdownButton<String>(
-        value: selectedCurrency,
-        alignment: Alignment.topRight,
-        menuMaxHeight: 200.0,
-        items: currenciesList.map((element) => DropdownMenuItem(child: Text(element), value: element)).toList(),
-        onChanged: (value) => setState(() => selectedCurrency = value),
-      );
-
-  CupertinoPicker iOSPicker() => CupertinoPicker(
-        itemExtent: 46.0,
-        magnification: 1.2,
-        onSelectedItemChanged: (selectedIndex) => setState(() {
-          selectedCurrency = currenciesList[selectedIndex];
-        }),
-        children: currenciesList
-            .map((element) => DropdownMenuItem(
-                alignment: Alignment.center,
-                child: Text(
-                  element,
-                  textAlign: TextAlign.center,
-                ),
-                value: element))
-            .toList(),
-      );
 
   @override
   Widget build(BuildContext context) {
@@ -91,33 +82,24 @@ class _PriceScreenState extends State<PriceScreen> {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          Padding(
-            padding: EdgeInsets.fromLTRB(18.0, 18.0, 18.0, 0),
-            child: Card(
-              color: Colors.lightBlueAccent,
-              elevation: 5.0,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10.0),
-              ),
-              child: Padding(
-                padding: EdgeInsets.symmetric(vertical: 15.0, horizontal: 28.0),
-                child: Text(
-                  '1 BTC = $selectedCurrencyBtcRate $selectedCurrency',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 20.0,
-                    color: Colors.white,
-                  ),
-                ),
-              ),
-            ),
+          Column(
+            mainAxisAlignment: MainAxisAlignment.start,
+            children: <Widget>[
+              RateCard(
+                  baseCurrency: 'BTC', currency: selectedCurrency, rate: rates['BTC'] ?? '-', isLoading: isScrolling),
+              RateCard(
+                  baseCurrency: 'LTC', currency: selectedCurrency, rate: rates['LTC'] ?? '-', isLoading: isScrolling),
+              RateCard(
+                  baseCurrency: 'ETH', currency: selectedCurrency, rate: rates['ETH'] ?? '-', isLoading: isScrolling),
+            ],
           ),
-          Container(
-            height: 150.0,
-            alignment: Alignment.center,
-            padding: EdgeInsets.only(bottom: 30.0),
-            color: Colors.lightBlue,
-            child: Platform.isIOS ? scrollListenerWrapper(onScrollStart, onScrollEnd, iOSPicker()) : androidDropdown(),
+          CurrencyPicker(
+            selectedCurrency: selectedCurrency,
+            onScrollStart: onScrollStart,
+            onScrollEnd: onScrollEnd,
+            onSelectCurrency: (value) => setState(() {
+              selectedCurrency = value;
+            }),
           ),
         ],
       ),
